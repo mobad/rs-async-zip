@@ -35,42 +35,66 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
 use std::io::SeekFrom;
 use async_io_utilities::AsyncDelimiterReader;
 
-/// A reader which acts over a seekable source.
-pub struct ZipFileReader<R: AsyncRead + AsyncSeek + Unpin> {
+
+/// A method which allows ZIP entries to be read both: out-of-order and multiple times.
+/// 
+/// As a result, this method requries the source to implement both [`AsyncRead`] and [`AsyncSeek`].
+pub struct SeekMethod<R: AsyncRead + AsyncSeek + Unpin> {
     pub(crate) reader: R,
     pub(crate) entries: Vec<ZipEntry>,
     pub(crate) comment: Option<String>,
 }
 
-impl<R: AsyncRead + AsyncSeek + Unpin> ZipFileReader<R> {
-    /// Constructs a new ZIP file reader from a mutable reference to a reader.
-    pub async fn new(mut reader: R) -> Result<ZipFileReader<R>> {
+impl<R: AsyncRead + AsyncSeek + Unpin> super::ZipFileReader<SeekMethod<R>> {
+    /// Constructs a new ZIP archive file reader using the seeking method ([`SeekMethod`]).
+    pub async fn new(mut reader: R) -> Result<Self> {
         let (entries, comment) = read_cd(&mut reader).await?;
-        Ok(ZipFileReader { reader, entries, comment })
+        let inner =  SeekMethod { reader, entries, comment };
+
+        Ok(super::ZipFileReader { inner })
     }
 
-    crate::read::reader_entry_impl!();
+    /// Returns a shared reference to a list of the ZIP file's entries.
+    pub fn entries(&self) -> &Vec<ZipEntry> {
+        &self.inner.entries
+    }
+
+    /// Searches for an entry with a specific filename.
+    pub fn entry(&self, name: &str) -> Option<(usize, &ZipEntry)> {
+        for (index, entry) in self.entries().iter().enumerate() {
+            if entry.name() == name {
+                return Some((index, entry));
+            }
+        }
+        
+        None
+    }
+
+    /// Returns an optional ending comment.
+    pub fn comment(&self) -> Option<&str> {
+        self.inner.comment.as_ref().map(|x| &x[..])
+    }
 
     /// Opens an entry at the provided index for reading.
     pub async fn entry_reader(&mut self, index: usize) -> Result<ZipEntryReader<'_, R>> {
-        let entry = self.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
+        let entry = self.inner.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
 
-        self.reader.seek(SeekFrom::Start(entry.offset.unwrap() as u64 + 4)).await?;
+        self.inner.reader.seek(SeekFrom::Start(entry.offset.unwrap() as u64 + 4)).await?;
 
-        let header = LocalFileHeader::from_reader(&mut self.reader).await?;
+        let header = LocalFileHeader::from_reader(&mut self.inner.reader).await?;
         let data_offset = (header.file_name_length + header.extra_field_length) as i64;
-        self.reader.seek(SeekFrom::Current(data_offset)).await?;
+        self.inner.reader.seek(SeekFrom::Current(data_offset)).await?;
 
         if entry.data_descriptor() {
             let delimiter = crate::spec::signature::DATA_DESCRIPTOR.to_le_bytes();
-            let reader = OwnedReader::Borrow(&mut self.reader);
+            let reader = OwnedReader::Borrow(&mut self.inner.reader);
             let reader = PrependReader::Normal(reader);
             let reader = AsyncDelimiterReader::new(reader, &delimiter);
             let reader = CompressionReader::from_reader(entry.compression(), reader.take(u64::MAX));
 
             Ok(ZipEntryReader::with_data_descriptor(entry, reader, false))
         } else {
-            let reader = OwnedReader::Borrow(&mut self.reader);
+            let reader = OwnedReader::Borrow(&mut self.inner.reader);
             let reader = PrependReader::Normal(reader);
             let reader = reader.take(entry.compressed_size.unwrap().into());
             let reader = CompressionReader::from_reader(entry.compression(), reader);
@@ -110,7 +134,7 @@ pub(crate) async fn read_cd<R: AsyncRead + AsyncSeek + Unpin>(reader: &mut R) ->
     if eocdh.disk_num != eocdh.start_cent_dir_disk || eocdh.num_of_entries != eocdh.num_of_entries_disk {
         return Err(ZipError::FeatureNotSupported("Spanned/split files"));
     }
-
+    
     if eocdh.file_comm_length > 0 {
         comment = Some(crate::utils::read_string(&mut reader, eocdh.file_comm_length as usize).await?);
     }

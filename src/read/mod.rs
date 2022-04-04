@@ -5,9 +5,11 @@
 
 pub mod fs;
 pub mod mem;
-pub mod seek;
+pub(crate) mod seek;
 pub mod stream;
 pub mod sync;
+
+pub use seek::SeekMethod;
 
 use crate::error::{Result, ZipError};
 use crate::spec::compression::Compression;
@@ -19,8 +21,22 @@ use std::task::{Context, Poll};
 use async_compression::tokio::bufread::{BzDecoder, DeflateDecoder, LzmaDecoder, XzDecoder, ZstdDecoder};
 use chrono::{DateTime, Utc};
 use crc32fast::Hasher;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, ReadBuf, Take};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, ReadBuf, Take, AsyncSeek};
 use async_io_utilities::{AsyncDelimiterReader, AsyncPrependReader};
+
+/// A ZIP archive reader generic over a reading method implementation.
+pub struct ZipFileReader<M> {
+    pub(crate) inner: M,
+}
+
+impl<M> ZipFileReader<M> {
+    /// Constructs a new ZIP archive reader using the seeking method.
+    /// 
+    /// An alias of [`ZipFileReader::<SeekMethod::<R>>::new()`].
+    pub async fn with_seek_method<R: AsyncRead + AsyncSeek + Unpin>(reader: R) -> Result<ZipFileReader<SeekMethod<R>>> {
+        ZipFileReader::<SeekMethod::<R>>::new(reader).await
+    }
+}
 
 /// An entry within a larger ZIP file reader.
 #[derive(Debug)]
