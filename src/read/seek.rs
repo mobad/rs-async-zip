@@ -26,7 +26,8 @@
 //! ```
 
 use crate::error::{Result, ZipError};
-use crate::read::{CompressionReader, ZipEntry, ZipEntryReader, OwnedReader, PrependReader};
+use crate::read::entry::{OwnedReader, PrependReader, CompressionReader};
+use crate::read::{ZipEntry, ZipEntryReader};
 use crate::spec::compression::Compression;
 use crate::spec::header::{CentralDirectoryHeader, EndOfCentralDirectoryHeader, LocalFileHeader};
 

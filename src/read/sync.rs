@@ -15,7 +15,8 @@
 //! Feel free to open an issue/PR if you have a good approach for this.
 
 use crate::error::{Result, ZipError};
-use crate::read::{CompressionReader, ZipEntry, ZipEntryReader, OwnedReader, PrependReader};
+use crate::read::entry::{OwnedReader, PrependReader, CompressionReader};
+use crate::read::{ZipEntry, ZipEntryReader};
 use crate::spec::header::LocalFileHeader;
 
 use std::io::SeekFrom;

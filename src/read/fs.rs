@@ -25,9 +25,9 @@
 
 use crate::read::ZipFileReader;
 
-use super::CompressionReader;
+use crate::read::entry::{OwnedReader, PrependReader, CompressionReader};
 use crate::error::{Result, ZipError};
-use crate::read::{ZipEntry, ZipEntryReader, OwnedReader, PrependReader};
+use crate::read::{ZipEntry, ZipEntryReader};
 use crate::spec::header::LocalFileHeader;
 
 use std::io::SeekFrom;
