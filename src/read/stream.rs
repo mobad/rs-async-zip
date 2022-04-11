@@ -7,6 +7,8 @@
 //! ```
 //! ```
 
+use crate::read::ZipFileReader;
+
 use crate::error::{Result, ZipError};
 use crate::read::{CompressionReader, ZipEntry, ZipEntryReader, OwnedReader, PrependReader};
 use crate::spec::compression::Compression;
@@ -15,50 +17,52 @@ use crate::spec::header::LocalFileHeader;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use async_io_utilities::{AsyncPrependReader, AsyncDelimiterReader};
 
-/// A reader which acts over a non-seekable source.
-pub struct ZipFileReader<R: AsyncRead + Unpin> {
+/// A method which allows ZIP entries to be read both: out-of-order and multiple times.
+/// 
+/// As a result, this method requries the source to implement both [`AsyncRead`] and [`AsyncSeek`].
+pub struct StreamMethod<R: AsyncRead + Unpin> {
     pub(crate) reader: AsyncPrependReader<R>,
     pub(crate) entry: Option<ZipEntry>,
     pub(crate) finished: bool,
 }
 
-impl<R: AsyncRead + Unpin> ZipFileReader<R> {
+impl<R: AsyncRead + Unpin> ZipFileReader<StreamMethod<R>> {
     /// Constructs a new ZIP file reader from a mutable reference to a reader.
     pub fn new(reader: R) -> Self {
         let reader = AsyncPrependReader::new(reader);
-        ZipFileReader { reader, entry: None, finished: false }
+        ZipFileReader { inner: StreamMethod { reader, entry: None, finished: false } }
     }
 
     /// Returns whether or not `entry_reader()` will yield more entries.
     pub fn finished(&self) -> bool {
-        self.finished
+        self.inner.finished
     }
 
     /// Opens the next entry for reading if the central directory hasn't already been reached.
     pub async fn entry_reader(&mut self) -> Result<Option<ZipEntryReader<'_, R>>> {
         // TODO: Ensure the previous entry has been fully read.
 
-        if self.finished {
+        if self.inner.finished {
             return Ok(None);
-        } else if let Some(inner) = read_lfh(&mut self.reader).await? {
-            self.entry = Some(inner);
+        } else if let Some(inner) = read_lfh(&mut self.inner.reader).await? {
+            self.inner.entry = Some(inner);
         } else {
-            self.finished = true;
+            self.inner.finished = true;
             return Ok(None);
         }
 
-        let entry_borrow = self.entry.as_ref().unwrap();
+        let entry_borrow = self.inner.entry.as_ref().unwrap();
 
         if entry_borrow.data_descriptor() {
             let delimiter = crate::spec::signature::DATA_DESCRIPTOR.to_le_bytes();
-            let reader = OwnedReader::Borrow(&mut self.reader);
+            let reader = OwnedReader::Borrow(&mut self.inner.reader);
             let reader = PrependReader::Prepend(reader);
             let reader = AsyncDelimiterReader::new(reader, &delimiter);
             let reader = CompressionReader::from_reader(entry_borrow.compression(), reader.take(u64::MAX));
 
             Ok(Some(ZipEntryReader::with_data_descriptor(entry_borrow, reader, true)))
         } else {
-            let reader = OwnedReader::Borrow(&mut self.reader);
+            let reader = OwnedReader::Borrow(&mut self.inner.reader);
             let reader = PrependReader::Prepend(reader);
             let reader = reader.take(entry_borrow.compressed_size.unwrap().into());
             let reader = CompressionReader::from_reader(entry_borrow.compression(), reader);

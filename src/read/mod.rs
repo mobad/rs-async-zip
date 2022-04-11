@@ -10,6 +10,8 @@ pub mod stream;
 pub mod sync;
 
 pub use seek::SeekMethod;
+pub use stream::StreamMethod;
+pub use fs::FileMethod;
 
 use crate::error::{Result, ZipError};
 use crate::spec::compression::Compression;
@@ -34,7 +36,21 @@ impl<M> ZipFileReader<M> {
     /// 
     /// An alias of [`ZipFileReader::<SeekMethod::<R>>::new()`].
     pub async fn with_seek_method<R: AsyncRead + AsyncSeek + Unpin>(reader: R) -> Result<ZipFileReader<SeekMethod<R>>> {
-        ZipFileReader::<SeekMethod::<R>>::new(reader).await
+        ZipFileReader::<SeekMethod::<_>>::new(reader).await
+    }
+
+    /// Constructs a new ZIP archive reader using the file method.
+    /// 
+    /// An alias of [`ZipFileReader::<FileMethod>::new()`].
+    pub async fn with_file_method(filename: String) -> Result<ZipFileReader<FileMethod>> {
+        ZipFileReader::<FileMethod>::new(filename).await
+    }
+
+    /// Constructs a new ZIP archive reader using the streaming method.
+    /// 
+    /// An alias of [`ZipFileReader::<StreamMethod::<R>>::new()`].
+    pub fn with_stream_method<R: AsyncRead + Unpin>(reader: R) -> ZipFileReader<StreamMethod<R>> {
+        ZipFileReader::<StreamMethod::<_>>::new(reader)
     }
 }
 
@@ -346,29 +362,3 @@ impl<'a, R: AsyncRead + Unpin> CompressionReader<R> {
         }
     }
 }
-
-macro_rules! reader_entry_impl {
-    () => {
-        /// Returns a shared reference to a list of the ZIP file's entries.
-        pub fn entries(&self) -> &Vec<ZipEntry> {
-            &self.entries
-        }
-
-        /// Searches for an entry with a specific filename.
-        pub fn entry(&self, name: &str) -> Option<(usize, &ZipEntry)> {
-            for (index, entry) in self.entries().iter().enumerate() {
-                if entry.name() == name {
-                    return Some((index, entry));
-                }
-            }
-            None
-        }
-
-        /// Returns an optional ending comment.
-        pub fn comment(&self) -> Option<&str> {
-            self.comment.as_ref().map(|x| &x[..])
-        }
-    };
-}
-
-pub(crate) use reader_entry_impl;
