@@ -3,7 +3,7 @@
 
 //! A module for reading ZIP file entries concurrently from an in-memory buffer.
 
-
+use crate::read::ZipFileReader;
 use crate::read::entry::{OwnedReader, PrependReader, CompressionReader};
 use crate::error::{Result, ZipError};
 use crate::read::{ZipEntry, ZipEntryReader};
@@ -17,23 +17,22 @@ use async_io_utilities::AsyncDelimiterReader;
 /// The type returned as an entry reader within this concurrent module.
 pub type ConcurrentReader<'b, 'a> = ZipEntryReader<'b, Cursor<&'a [u8]>>;
 
-/// A reader which acts concurrently over an in-memory buffer.
-pub struct ZipFileReader<'a> {
+pub struct BufferMethod<'a> {
     pub(crate) data: &'a [u8],
     pub(crate) entries: Vec<ZipEntry>,
     pub(crate) comment: Option<String>,
 }
 
-impl<'a> ZipFileReader<'a> {
+impl<'a> ZipFileReader<BufferMethod<'a>> {
     /// Constructs a new ZIP file reader from an in-memory buffer.
-    pub async fn new(data: &'a [u8]) -> Result<ZipFileReader<'a>> {
+    pub async fn new(data: &'a [u8]) -> Result<ZipFileReader<BufferMethod<'a>>> {
         let (entries, comment) = crate::read::seek::read_cd(&mut Cursor::new(data)).await?;
-        Ok(ZipFileReader { data, entries, comment })
+        Ok(ZipFileReader { inner: BufferMethod { data, entries, comment } })
     }
 
     /// Returns a shared reference to a list of the ZIP file's entries.
     pub fn entries(&self) -> &Vec<ZipEntry> {
-        &self.entries
+        &self.inner.entries
     }
 
     /// Searches for an entry with a specific filename.
@@ -49,14 +48,14 @@ impl<'a> ZipFileReader<'a> {
 
     /// Returns an optional ending comment.
     pub fn comment(&self) -> Option<&str> {
-        self.comment.as_ref().map(|x| &x[..])
+        self.inner.comment.as_ref().map(|x| &x[..])
     }
 
     /// Opens an entry at the provided index for reading.
     pub async fn entry_reader<'b>(&'b mut self, index: usize) -> Result<ConcurrentReader<'b, 'a>> {
-        let entry = self.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
+        let entry = self.inner.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
 
-        let mut cursor = Cursor::new(<&[u8]>::clone(&self.data));
+        let mut cursor = Cursor::new(<&[u8]>::clone(&self.inner.data));
         cursor.seek(SeekFrom::Start(entry.offset.unwrap() as u64 + 4)).await?;
 
         let header = LocalFileHeader::from_reader(&mut cursor).await?;

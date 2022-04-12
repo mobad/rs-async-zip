@@ -3,19 +3,21 @@
 
 //! A module which supports reading ZIP files using various approaches.
 
-pub mod fs;
-pub mod mem;
+pub(crate) mod fs;
+pub(crate) mod mem;
 pub(crate) mod seek;
 pub(crate) mod stream;
-pub mod sync;
+pub(crate) mod sync;
 pub(crate) mod entry;
 
 pub use entry::{ZipEntry, ZipEntryReader};
 pub use seek::SeekMethod;
 pub use stream::StreamMethod;
 pub use fs::FileMethod;
-use crate::error::Result;
+pub use mem::BufferMethod;
+pub use sync::SyncMethod;
 
+use crate::error::Result;
 use tokio::io::{AsyncRead, AsyncSeek};
 
 /// A ZIP archive reader generic over a reading method implementation.
@@ -43,5 +45,12 @@ impl<M> ZipFileReader<M> {
     /// An alias of [`ZipFileReader::<StreamMethod::<R>>::new()`].
     pub fn with_stream_method<R: AsyncRead + Unpin>(reader: R) -> ZipFileReader<StreamMethod<R>> {
         ZipFileReader::<StreamMethod::<_>>::new(reader)
+    }
+
+    /// Constructs a new ZIP archive reader using the buffer method.
+    /// 
+    /// An alias of [`ZipFileReader::<BufferMethod<'_>>::new()`].
+    pub async fn with_buffer_method(data: &[u8]) -> Result<ZipFileReader<BufferMethod<'_>>> {
+        ZipFileReader::<BufferMethod<'_>>::new(data).await
     }
 }

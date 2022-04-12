@@ -14,6 +14,7 @@
 //!
 //! Feel free to open an issue/PR if you have a good approach for this.
 
+use crate::read::ZipFileReader;
 use crate::error::{Result, ZipError};
 use crate::read::entry::{OwnedReader, PrependReader, CompressionReader};
 use crate::read::{ZipEntry, ZipEntryReader};
@@ -28,26 +29,25 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, ReadBuf};
 use async_io_utilities::AsyncDelimiterReader;
 
-/// A reader which acts concurrently over an in-memory buffer.
-pub struct ZipFileReader<R: AsyncRead + AsyncSeek + Unpin> {
+pub struct SyncMethod<R: AsyncRead + AsyncSeek + Unpin> {
     pub(crate) reader: Arc<Mutex<R>>,
     pub(crate) entries: Vec<ZipEntry>,
     pub(crate) comment: Option<String>,
 }
 
 #[allow(unreachable_code, unused_variables)]
-impl<R: AsyncRead + AsyncSeek + Unpin> ZipFileReader<R> {
+impl<R: AsyncRead + AsyncSeek + Unpin> ZipFileReader<SyncMethod<R>> {
     /// Constructs a new ZIP file reader from an in-memory buffer.
-    pub async fn new(reader: R) -> Result<ZipFileReader<R>> {
+    pub async fn new(reader: R) -> Result<ZipFileReader<SyncMethod<R>>> {
         unimplemented!();
 
         let (entries, comment) = crate::read::seek::read_cd(&mut reader).await?;
-        Ok(ZipFileReader { reader: Arc::new(Mutex::new(reader)), entries, comment })
+        Ok(ZipFileReader { inner: SyncMethod { reader: Arc::new(Mutex::new(reader)), entries, comment } })
     }
 
     /// Returns a shared reference to a list of the ZIP file's entries.
     pub fn entries(&self) -> &Vec<ZipEntry> {
-        &self.entries
+        &self.inner.entries
     }
 
     /// Searches for an entry with a specific filename.
@@ -63,14 +63,14 @@ impl<R: AsyncRead + AsyncSeek + Unpin> ZipFileReader<R> {
 
     /// Returns an optional ending comment.
     pub fn comment(&self) -> Option<&str> {
-        self.comment.as_ref().map(|x| &x[..])
+        self.inner.comment.as_ref().map(|x| &x[..])
     }
 
     /// Opens an entry at the provided index for reading.
     pub async fn entry_reader(&self, index: usize) -> Result<ZipEntryReader<'_, GuardedReader<R>>> {
-        let entry = self.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
+        let entry = self.inner.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
 
-        let mut guarded_reader = GuardedReader { reader: self.reader.clone() };
+        let mut guarded_reader = GuardedReader { reader: self.inner.reader.clone() };
         guarded_reader.seek(SeekFrom::Start(entry.offset.unwrap() as u64 + 4)).await?;
 
         let header = LocalFileHeader::from_reader(&mut guarded_reader).await?;

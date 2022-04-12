@@ -18,9 +18,9 @@ use crate::spec::header::LocalFileHeader;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use async_io_utilities::{AsyncPrependReader, AsyncDelimiterReader};
 
-/// A method which allows ZIP entries to be read both: out-of-order and multiple times.
+/// A method which allows ZIP entries to be read from a non-seekable source.
 /// 
-/// As a result, this method requries the source to implement both [`AsyncRead`] and [`AsyncSeek`].
+/// As a result, this method requries the source to implement both [`AsyncRead`].
 pub struct StreamMethod<R: AsyncRead + Unpin> {
     pub(crate) reader: AsyncPrependReader<R>,
     pub(crate) entry: Option<ZipEntry>,
