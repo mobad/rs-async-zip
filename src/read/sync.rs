@@ -45,26 +45,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> ZipFileReader<SyncMethod<R>> {
         Ok(ZipFileReader { inner: SyncMethod { reader: Arc::new(Mutex::new(reader)), entries, comment } })
     }
 
-    /// Returns a shared reference to a list of the ZIP file's entries.
-    pub fn entries(&self) -> &Vec<ZipEntry> {
-        &self.inner.entries
-    }
-
-    /// Searches for an entry with a specific filename.
-    pub fn entry(&self, name: &str) -> Option<(usize, &ZipEntry)> {
-        for (index, entry) in self.entries().iter().enumerate() {
-            if entry.name() == name {
-                return Some((index, entry));
-            }
-        }
-        
-        None
-    }
-
-    /// Returns an optional ending comment.
-    pub fn comment(&self) -> Option<&str> {
-        self.inner.comment.as_ref().map(|x| &x[..])
-    }
+    crate::read::reader_entry_impl!();
 
     /// Opens an entry at the provided index for reading.
     pub async fn entry_reader(&self, index: usize) -> Result<ZipEntryReader<'_, GuardedReader<R>>> {
