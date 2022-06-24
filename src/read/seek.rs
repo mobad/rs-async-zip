@@ -26,14 +26,14 @@
 //! ```
 
 use crate::error::{Result, ZipError};
-use crate::read::{CompressionReader, ZipEntry, ZipEntryReader, OwnedReader, PrependReader};
+use crate::read::{CompressionReader, OwnedReader, PrependReader, ZipEntry, ZipEntryReader};
 use crate::spec::compression::Compression;
 use crate::spec::header::{CentralDirectoryHeader, EndOfCentralDirectoryHeader, LocalFileHeader};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
 
-use std::io::SeekFrom;
 use async_io_utilities::AsyncDelimiterReader;
+use std::io::SeekFrom;
 
 /// A reader which acts over a seekable source.
 pub struct ZipFileReader<R: AsyncRead + AsyncSeek + Unpin> {
@@ -80,7 +80,16 @@ impl<R: AsyncRead + AsyncSeek + Unpin> ZipFileReader<R> {
     }
 }
 
-pub(crate) async fn read_cd<R: AsyncRead + AsyncSeek + Unpin>(reader: &mut R) -> Result<(Vec<ZipEntry>, Option<String>)> {
+pub(crate) async fn read_cd<R: AsyncRead + AsyncSeek + Unpin>(
+    reader: &mut R,
+) -> Result<(Vec<ZipEntry>, Option<String>)> {
+    read_cd_at_offset(reader, 0).await
+}
+
+pub(crate) async fn read_cd_at_offset<R: AsyncRead + AsyncSeek + Unpin>(
+    reader: &mut R,
+    offset: u64,
+) -> Result<(Vec<ZipEntry>, Option<String>)> {
     const MAX_ENDING_LENGTH: u64 = (u16::MAX - 2) as u64;
 
     let length = reader.seek(SeekFrom::End(0)).await?;
@@ -116,7 +125,7 @@ pub(crate) async fn read_cd<R: AsyncRead + AsyncSeek + Unpin>(reader: &mut R) ->
     }
 
     let reader = reader.into_inner();
-    reader.seek(SeekFrom::Start(eocdh.cent_dir_offset.into())).await?;
+    reader.seek(SeekFrom::Start(eocdh.cent_dir_offset as u64 - offset)).await?;
     let mut entries = Vec::with_capacity(eocdh.num_of_entries.into());
 
     for _ in 0..eocdh.num_of_entries {

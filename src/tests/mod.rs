@@ -4,6 +4,7 @@
 use crate::spec::compression::Compression;
 use crate::write::{EntryOptions, ZipFileWriter};
 
+use std::fs::File;
 use std::io::Cursor;
 use std::vec::Vec;
 
@@ -112,6 +113,25 @@ async fn data_descriptor_single() {
 }
 
 #[tokio::test]
+async fn http_range_zip() {
+    use crate::read::http_range::ZipHttpRangeReader;
+
+    let zip_reader = ZipHttpRangeReader::new(
+        "https://www49.zippyshare.com/d/Rmofe0LV/9420/One%20Piece%20-%20c869%20%5bbatoto%5d.zip".to_string(),
+    )
+    .await
+    .expect("failed to open reader");
+
+    for (i, _) in zip_reader.entries().iter().enumerate() {
+        eprintln!("start {}", i);
+        let contents = zip_reader.entry_reader(i).await.unwrap().read_to_end_crc().await.unwrap();
+        let mut file = File::create(format!("test_{}.png", i)).unwrap();
+        std::io::copy(&mut Cursor::new(contents), &mut file).unwrap();
+        eprintln!("end {}", i);
+    }
+}
+
+#[tokio::test]
 async fn data_descriptor_double_stream() {
     use crate::read::stream::ZipFileReader;
     use tokio::io::AsyncWriteExt;
@@ -154,7 +174,7 @@ async fn data_descriptor_double_stream() {
     assert_eq!(data, buffer);
 
     assert!(!zip_reader.finished());
-    
+
     let entry_reader = zip_reader.entry_reader().await.expect("failed to open entry reader");
     assert!(entry_reader.is_none());
     assert!(zip_reader.finished());

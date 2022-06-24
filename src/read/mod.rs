@@ -4,6 +4,7 @@
 //! A module which supports reading ZIP files using various approaches.
 
 pub mod fs;
+pub mod http_range;
 pub mod mem;
 pub mod seek;
 pub mod stream;
@@ -17,10 +18,10 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use async_compression::tokio::bufread::{BzDecoder, DeflateDecoder, LzmaDecoder, XzDecoder, ZstdDecoder};
+use async_io_utilities::{AsyncDelimiterReader, AsyncPrependReader};
 use chrono::{DateTime, Utc};
 use crc32fast::Hasher;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, ReadBuf, Take};
-use async_io_utilities::{AsyncDelimiterReader, AsyncPrependReader};
 
 /// An entry within a larger ZIP file reader.
 #[derive(Debug)]
@@ -103,7 +104,7 @@ impl<'a, R: AsyncRead + Unpin> AsyncRead for PrependReader<'a, R> {
     fn poll_read(mut self: Pin<&mut Self>, c: &mut Context<'_>, b: &mut ReadBuf<'_>) -> Poll<tokio::io::Result<()>> {
         match *self {
             PrependReader::Normal(ref mut inner) => Pin::new(inner).poll_read(c, b),
-            PrependReader::Prepend(ref mut inner) => Pin::new(inner).poll_read(c, b)
+            PrependReader::Prepend(ref mut inner) => Pin::new(inner).poll_read(c, b),
         }
     }
 }
@@ -117,7 +118,7 @@ impl<'a, R: AsyncRead + Unpin> AsyncRead for OwnedReader<'a, R> {
     fn poll_read(mut self: Pin<&mut Self>, c: &mut Context<'_>, b: &mut ReadBuf<'_>) -> Poll<tokio::io::Result<()>> {
         match *self {
             OwnedReader::Owned(ref mut inner) => Pin::new(inner).poll_read(c, b),
-            OwnedReader::Borrow(ref mut inner) => Pin::new(inner).poll_read(c, b)
+            OwnedReader::Borrow(ref mut inner) => Pin::new(inner).poll_read(c, b),
         }
     }
 }
@@ -131,7 +132,7 @@ impl<'a, R: AsyncRead + Unpin> AsyncRead for LocalReader<'a, R> {
     fn poll_read(mut self: Pin<&mut Self>, c: &mut Context<'_>, b: &mut ReadBuf<'_>) -> Poll<tokio::io::Result<()>> {
         match *self {
             LocalReader::Standard(ref mut inner) => Pin::new(inner).poll_read(c, b),
-            LocalReader::Stream(ref mut inner) => Pin::new(inner).poll_read(c, b)
+            LocalReader::Stream(ref mut inner) => Pin::new(inner).poll_read(c, b),
         }
     }
 }
@@ -153,7 +154,11 @@ impl<'a, R: AsyncRead + Unpin> ZipEntryReader<'a, R> {
     }
 
     /// Construct an entry reader from its raw parts (a shared reference to the entry and an inner reader).
-    pub(crate) fn with_data_descriptor(entry: &'a ZipEntry, reader: CompressionReader<AsyncDelimiterReader<PrependReader<'a, R>>>, _: bool) -> Self {
+    pub(crate) fn with_data_descriptor(
+        entry: &'a ZipEntry,
+        reader: CompressionReader<AsyncDelimiterReader<PrependReader<'a, R>>>,
+        _: bool,
+    ) -> Self {
         let reader = LocalReader::Stream(reader);
         ZipEntryReader { entry, reader, hasher: Hasher::new(), consumed: false, data_descriptor: None }
     }
@@ -193,7 +198,7 @@ impl<'a, R: AsyncRead + Unpin> ZipEntryReader<'a, R> {
 
             let mut buffer = Vec::new();
             buffer.extend_from_slice(inner_mut.buffer());
-            
+
             if let PrependReader::Prepend(inner) = inner_mut.get_mut() {
                 match inner {
                     OwnedReader::Owned(inner) => inner.prepend(&buffer),
@@ -302,7 +307,7 @@ impl<R: AsyncRead + Unpin> CompressionReader<R> {
             CompressionReader::Zstd(inner) => inner.get_mut().get_mut().get_mut(),
             CompressionReader::Xz(inner) => inner.get_mut().get_mut().get_mut(),
         }
-    } 
+    }
 }
 
 impl<R: AsyncRead + Unpin> AsyncRead for CompressionReader<R> {
